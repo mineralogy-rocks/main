@@ -1,0 +1,116 @@
+version: "3"
+services:
+
+    nginx-dev:
+        container_name: nginx-dev
+        restart: unless-stopped
+        image: nginx:stable-alpine
+        ports:
+            - "80:80"
+        command: >
+            /bin/sh -c "envsubst '$${DOMAIN}' < /etc/nginx/nginx.template > /etc/nginx/nginx.conf && exec nginx -g 'daemon off;'"
+        env_file:
+            - ./.env
+        volumes:
+            - ./nginx/nginx.template:/etc/nginx/nginx.template:ro
+
+            - ./_data/log:/var/log/nginx
+            - ./_data/media:/var/www/media
+            - ./_data/static:/var/www/static
+
+    database:
+        container_name: database
+        build:
+          context: ../backend
+          dockerfile: ./compose/local/db/Dockerfile
+        restart: unless-stopped
+        volumes:
+            - ../backend/db/services/dump_db.sh:/dump_db.sh:ro
+            - ../backend/db/services/restore_db.sh:/restore_db.sh:ro
+
+            - database-data:/var/lib/postgresql/data/
+            - ../backend/db/backups:/backups
+            - ../backend/sql/:/sql
+        env_file:
+            - ../backend/.envs/.local/.db
+        ports:
+            - "5432:5432"
+
+    backend:
+        container_name: backend
+        build:
+            context: ../backend
+            dockerfile: ./compose/local/backend/Dockerfile
+        command: /start
+        restart: unless-stopped
+        links:
+            - 'nginx-dev:api.dev.mindat.org'
+        depends_on:
+            - database
+            - nginx-dev
+        env_file:
+            - ../backend/.envs/.local/.backend
+            - ../backend/.envs/.local/.db
+        volumes:
+            - ../backend:/app
+
+            - ./_data/media:/app/media
+            - ./_data/static:/app/static
+
+    keep-rocking:
+        restart: unless-stopped
+        depends_on:
+             - backend
+             - nginx-dev
+        links:
+             - "nginx-dev:api.${DOMAIN}"
+        build:
+            context: ../keep-rocking
+            dockerfile: dev.Dockerfile
+        env_file:
+            - ../keep-rocking/.envs/.local/.env
+            - ../keep-rocking/.envs/.prod/.env
+        stdin_open: true
+        volumes:
+            - ../keep-rocking:/app
+        ports:
+            - 8080:3000
+
+    backend_mindat:
+        build:
+            context: ../mindatapi
+            dockerfile: ./compose/local/backend/Dockerfile
+        command: /start
+        restart: unless-stopped
+        depends_on:
+              - mysql5
+              - nginx-dev
+        ports:
+              - 8000:8000
+        env_file:
+            - ../mindatapi/.envs/.local/.backend
+            - ../mindatapi/.envs/.local/.db
+        volumes:
+            - ../mindatapi:/app
+
+            - ../mindatapi/nginx/_data/media:/app/media
+            - ../mindatapi/nginx/_data/static:/app/static
+
+    mysql5:
+        build:
+            context: ../mindatapi
+            dockerfile: ./compose/local/db/Dockerfile
+        restart: unless-stopped
+        volumes:
+            - mysql5:/var/lib/mysql
+            - ../mindatapi/db/backups:/backups
+        env_file:
+          - ../mindatapi/.envs/.local/.db
+        ports:
+            - "3306:3306"
+
+volumes:
+    database-data:
+    mysql5:
+      external: true
+      name: mindatapi_mysql5
