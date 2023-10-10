@@ -112,5 +112,3 @@ services:
 volumes:
     database-data:
     mysql5:
-      external: true
-      name: mindatapi_mysql5
