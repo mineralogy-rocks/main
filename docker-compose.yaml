@@ -62,6 +62,7 @@ services:
         depends_on:
              - backend
              - nginx-dev
+             - sidecar
         links:
              - 'nginx-dev:api.dev.${DOMAIN}'
         build:
@@ -77,6 +78,15 @@ services:
             - ./_data/static:/var/www/static
 #        ports:
 #            - "8080:3000"
+
+    sidecar:
+        image: ghcr.io/getsentry/spotlight:latest
+        container_name: spotlight
+        restart: unless-stopped
+        ports:
+            - "8969:8969"
+        links:
+            - 'nginx-dev:local.${DOMAIN}'
 
     backend_mindat:
         build:
