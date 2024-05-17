@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+working_dir="$(dirname ${0})"
+source "${working_dir}/_sourced/messages.sh"
+
+message_info "Finding the .gz backups..."
+find ./_data/ -type d -name "backup" -exec sh -c 'rm -f "{}"/*.sql.gz*' \;
+message_success "Removed the .gz backups."

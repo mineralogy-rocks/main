@@ -1,10 +1,33 @@
-start-db:
-	@echo "--> Starting local database..."
-	docker-compose up -d database
+BACKUP := 'db__$(shell date +%d.%m.%Y__%H-%M).sql.gz'
 
-stop-db:
-	@echo "--> Stopping local database..."
-	docker-compose stop database
+#dump-prod-db:
+#	$(eval include ../backend/.envs/.prod/.db)
+#	$(eval export $(shell sed 's/=.*//' ../backend/.envs/.prod/.db))
+#	# usage: make dump-prod-db
+#	# the command dumps the production db to the ./_data/db/backup/ folder and fixes the permissions
+#	@echo "\033[1m1. Dumping production db...\033[0m"
+#	@bash ./bin/dump-prod-db ${BACKUP};
+#
+#	@echo "\033[1m2. Fixing permissions...\033[0m"
+#	@bash ./bin/fix-dump-permission ./_data/db/backup/${BACKUP};
+#
+#fix-dump-permissions:
+#	# usage: make fix-dump-permissions backup=./_data/db/backup/db__*.sql.gz
+#	# the command fixes the permissions of the dump file
+#	@echo "\033[1mFixing permissions...\033[0m"
+#	@bash ./bin/fix-dump-permission $(backup);
+#
+#restore-local-db:
+#	# usage: make restore-local-db backup=./_data/db/backup/db__*.sql.gz or make restore-local-db
+#	# the command restores the production db from the specified backup or from the latest backup
+#	@echo "\033[1mRestoring local db...\033[0m"
+#	@bash ./bin/restore-local-db $(backup);
+#
+#clear-backups:
+#	# usage: make clear-backups
+#	# the command clears all backups
+#	@echo "\033[1m Clearing the backups...\033[0m"
+#	@bash ./bin/clear-backups;
 
 dump-prod-db:
 	$(eval include ../backend/.envs/.prod/.db)
@@ -35,9 +58,3 @@ ifdef file
 else
 		@echo 'please, pass sql file as an argument!'
 endif
-
-start:
-	docker-compose -f docker-compose.yaml up -d
-
-stop:
-	docker-compose -f docker-compose.yaml down

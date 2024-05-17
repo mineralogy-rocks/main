@@ -26,7 +26,7 @@ http {
 
 	server {
 		listen 80;
-		server_name api.dev.${DOMAIN};
+		server_name api.${DOMAIN}.local;
 
 		keepalive_timeout 5;
 		client_max_body_size 20m;
@@ -94,7 +94,7 @@ http {
 
 	server {
 		listen 80;
-		server_name local.${DOMAIN};
+		server_name ${DOMAIN}.local;
 
 		keepalive_timeout 5;
 		client_max_body_size 20m;
@@ -128,7 +128,7 @@ http {
 
 	server {
 		listen 80;
-		server_name local.sidecar;
+		server_name sidecar.local;
 
 		keepalive_timeout 5;
 		client_max_body_size 20m;

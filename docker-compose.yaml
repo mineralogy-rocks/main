@@ -64,7 +64,7 @@ services:
              - nginx-dev
              - sidecar
         links:
-             - 'nginx-dev:api.dev.${DOMAIN}'
+             - 'nginx-dev:api.${DOMAIN}.local'
         build:
             context: ../keep-rocking
             dockerfile: dev.Dockerfile
@@ -86,7 +86,7 @@ services:
         ports:
             - "8969:8969"
         links:
-            - 'nginx-dev:local.${DOMAIN}'
+            - 'nginx-dev:${DOMAIN}.local'
 
     backend_mindat:
         build:

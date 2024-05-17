@@ -1,6 +1,10 @@
 .env
 
-_data
+_data/log
+_data/media
+_data/static
+_data/db/backup/*
+!_data/db/backup/.gitkeep
 
 .idea
 .vscode
