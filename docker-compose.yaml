@@ -17,6 +17,8 @@ services:
             - ./_data/log:/var/log/nginx
             - ./_data/media:/var/www/media
             - ./_data/static:/var/www/static
+        labels:
+            - dev.orbstack.domains=*.local
 
     database:
         container_name: database
@@ -56,6 +58,10 @@ services:
 
             - ./_data/media:/app/media
             - ./_data/static:/app/static
+        ports:
+            - "8000:8000"
+        labels:
+            - dev.orbstack.domains=api.mineralogy.rocks.local
 
     keep-rocking:
         restart: unless-stopped
@@ -76,8 +82,10 @@ services:
             - node_modules:/app/node_modules
             - ../keep-rocking:/app
             - ./_data/static:/var/www/static
-#        ports:
-#            - "8080:3000"
+        ports:
+            - "8080:3000"
+        labels:
+            - dev.orbstack.domains=mineralogy.rocks.local
 
     sidecar:
         image: ghcr.io/getsentry/spotlight:latest
