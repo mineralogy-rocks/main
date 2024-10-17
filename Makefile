@@ -30,21 +30,22 @@ BACKUP := 'db__$(shell date +%d.%m.%Y__%H-%M).sql.gz'
 #	@bash ./bin/clear-backups;
 
 dump-prod-db:
-	$(eval include ../backend/.envs/.prod/.db)
-	$(eval export $(shell sed 's/=.*//' ../backend/.envs/.prod/.db))
+	# usage: make dump-prod-db
+	# the command dumps the production db to the ./_data/db/backup/ folder and fixes the permissions
+	@echo "\033[1m1. Dumping production db...\033[0m"
+	@bash ./bin/dump-prod-db ${BACKUP};
 
-	docker-compose -f docker-compose.yaml run \
-		-e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
-		-e POSTGRES_HOST=${POSTGRES_HOST} \
-		-e POSTGRES_PORT=${POSTGRES_PORT} \
-		-e POSTGRES_USER=${POSTGRES_USER} \
-		-e POSTGRES_DB=${POSTGRES_DB} --rm --no-deps database backup
+#	@echo "\033[1m2. Fixing permissions...\033[0m"
+#	@bash ./bin/fix-dump-permission ./_data/gtaapi-db/backup/${GTAAPI_BACKUP};
 
 backups:
 	docker-compose -f docker-compose.yaml run --rm database backups
 
-restore-local-db:
-	docker-compose -f docker-compose.yaml run --rm --no-deps database restore "${backup}"
+restore-db:
+	# usage: make restore-db backup=./_data/db/backup/db__*.sql.gz or make restore-db
+	# the command restores the db from the specified backup or from the latest backup
+	@echo "\033[1mRestoring local db...\033[0m"
+	@bash ./bin/restore-db $(backup);
 
 run-sql:
 ifdef file

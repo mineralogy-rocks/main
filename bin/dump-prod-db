@@ -13,13 +13,14 @@ set -o pipefail
 set -o nounset
 
 working_dir="$(dirname ${0})"
+source '../backend/.envs/.prod/.db'
 source "${working_dir}/_sourced/constants.sh"
 source "${working_dir}/_sourced/messages.sh"
 
 BACKUP_NAME=$1
 
 message_newline
-message_welcome "Please wait while the dump is being generated..."
+message_welcome "Backing up the '${POSTGRES_DB}' database..."
 
 export PGHOST="${POSTGRES_HOST}"
 export PGPORT="${POSTGRES_PORT}"
@@ -27,13 +28,26 @@ export PGUSER="${POSTGRES_USER}"
 export PGPASSWORD="${POSTGRES_PASSWORD}"
 export PGDATABASE="${POSTGRES_DB}"
 
+
+env_valid=true
+for var in POSTGRES_HOST POSTGRES_PORT POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
+	if [ -z ${!var+x} ]; then
+		message_error "$var is not set. Please set it in the ../backend/.envs/.prod/.db file."
+		env_valid=false
+	fi
+done
+
+if [ "$env_valid" = false ]; then
+	exit 1
+fi
+
+
 if [[ "${POSTGRES_USER}" == "postgres" ]]; then
     message_error "Backing up as 'postgres' user is not supported. Assign 'POSTGRES_USER' env with another one and try again."
     exit 1
 fi
 
-docker-compose -f docker-compose.yaml run --rm --no-deps database \
-        pg_dump --clean --no-owner --no-privileges | gzip \
-        > ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}
+docker-compose -f docker-compose.yaml run --rm --no-deps db \
+        pg_dump --clean --no-owner --no-privileges | gzip > ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}
 
 message_success "Dumped production database to ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}"

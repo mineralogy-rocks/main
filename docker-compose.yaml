@@ -20,17 +20,14 @@ services:
         labels:
             - dev.orbstack.domains=*.local
 
-    database:
-        container_name: database
+    db:
+        container_name: db
         build:
           context: ../backend
           dockerfile: ./compose/local/db/Dockerfile
         restart: unless-stopped
         volumes:
-            - ../backend/db/services/dump_db.sh:/dump_db.sh:ro
-            - ../backend/db/services/restore_db.sh:/restore_db.sh:ro
-
-            - database-data:/var/lib/postgresql/data/
+            - db:/var/lib/postgresql/data/
             - ../backend/db/backups:/backups
             - ../backend/sql/:/sql
         env_file:
@@ -48,7 +45,7 @@ services:
         links:
             - 'nginx-dev:api.dev.mindat.org'
         depends_on:
-            - database
+            - db
             - nginx-dev
         env_file:
             - ../backend/.envs/.local/.backend
@@ -96,7 +93,7 @@ services:
         links:
             - 'nginx-dev:${DOMAIN}.local'
 
-    backend_mindat:
+    backend-mindat:
         build:
             context: ../mindatapi
             dockerfile: ./compose/local/backend/Dockerfile
@@ -131,5 +128,5 @@ services:
 
 volumes:
     node_modules:
-    database-data:
+    db:
     mysql5:

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+export LC_ALL=C
+
+working_dir="$(dirname ${0})"
+source "${working_dir}/_sourced/messages.sh"
+source "${working_dir}/_sourced/utils.sh"
+
+BACKUP_PATH=''
+if [[ -z ${1+x} ]]; then
+	message_error "Backup filename is not specified."
+	exit 1
+else
+	BACKUP_PATH="${1}"
+fi
+
+check_file_exists ${BACKUP_PATH}
+check_file_not_empty ${BACKUP_PATH}
+
+message_info "Fixing the dump permissions..."
+gunzip < "${BACKUP_PATH}" | sed -e 's/DEFINER=`[^`]*`@`[^`]*`//g' | gzip -c > "${BACKUP_PATH}.temp"
+mv "${BACKUP_PATH}" "${BACKUP_PATH}.original"
+mv "${BACKUP_PATH}.temp" "${BACKUP_PATH}"
+
+message_success "Fixed dump permissions for ${BACKUP_PATH}"
