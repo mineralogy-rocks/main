@@ -22,18 +22,17 @@ services:
 
     db:
         container_name: db
-        build:
-          context: ../backend
-          dockerfile: ./compose/local/db/Dockerfile
+        image: postgres:17.0
         restart: unless-stopped
-        volumes:
-            - db:/var/lib/postgresql/data/
-            - ../backend/db/backups:/backups
-            - ../backend/sql/:/sql
-        env_file:
-            - ../backend/.envs/.local/.db
+        environment:
+            - POSTGRES_USER=${DB_USER}
+            - POSTGRES_PASSWORD=${DB_PASSWORD}
+            - POSTGRES_DB=${DB_NAME}
+            - POSTGRES_PORT=5432
         ports:
             - "5432:5432"
+        volumes:
+            - db:/var/lib/postgresql/data/
 
     backend:
         container_name: backend

@@ -19,15 +19,13 @@ source "${working_dir}/_sourced/messages.sh"
 
 BACKUP_NAME=$1
 
+if [[ ! "${BACKUP_NAME}" =~ \.(sql|sql.gz|dump)$ ]]; then
+    message_error "Backup filename must end with .sql or .sql.gz"
+    exit 1
+fi
+
 message_newline
-message_welcome "Backing up the '${POSTGRES_DB}' database..."
-
-export PGHOST="${POSTGRES_HOST}"
-export PGPORT="${POSTGRES_PORT}"
-export PGUSER="${POSTGRES_USER}"
-export PGPASSWORD="${POSTGRES_PASSWORD}"
-export PGDATABASE="${POSTGRES_DB}"
-
+message_welcome "Preparing to backup the '${POSTGRES_DB}' database..."
 
 env_valid=true
 for var in POSTGRES_HOST POSTGRES_PORT POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
@@ -41,13 +39,37 @@ if [ "$env_valid" = false ]; then
 	exit 1
 fi
 
+CONNECTION_STRING="host=$POSTGRES_HOST port=$POSTGRES_PORT dbname=$POSTGRES_DB user=$POSTGRES_USER password=$POSTGRES_PASSWORD"
 
 if [[ "${POSTGRES_USER}" == "postgres" ]]; then
     message_error "Backing up as 'postgres' user is not supported. Assign 'POSTGRES_USER' env with another one and try again."
     exit 1
 fi
 
-docker-compose -f docker-compose.yaml run --rm --no-deps db \
-        pg_dump --clean --no-owner --no-privileges | gzip > ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}
+if ! docker info >/dev/null 2>&1; then
+    message_error "Docker is not running. Please start Docker and try again."
+    exit 1
+fi
 
-message_success "Dumped production database to ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}"
+message_info "Starting backup process..."
+backup_file="${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}"
+
+if docker-compose ps | grep -q "db"; then
+    if ! docker-compose -f docker-compose.yaml run --rm --no-deps db \
+        pg_dump "${CONNECTION_STRING}" --clean --no-owner --no-privileges -Fc -Z 6 > "${backup_file}"; then
+        message_error "Backup failed"
+        exit 1
+    fi
+else
+    message_error "Database container is not running"
+    exit 1
+fi
+
+
+if [ -f "${backup_file}" ] && [ -s "${backup_file}" ]; then
+    backup_size=$(du -h "${backup_file}" | cut -f1)
+    message_success "Successfully created backup: ${backup_file} (${backup_size})"
+else
+    message_error "Backup file was not created or is empty"
+    exit 1
+fi

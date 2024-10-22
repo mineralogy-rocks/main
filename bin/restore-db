@@ -16,65 +16,49 @@ set -o nounset
 
 
 working_dir="$(dirname ${0})"
-source '../backend/.envs/.local/.db'
+source './.env'
 source "${working_dir}/_sourced/constants.sh"
 source "${working_dir}/_sourced/messages.sh"
 source "${working_dir}/_sourced/utils.sh"
 source "${working_dir}/_sourced/yes_no.sh"
 
 
+
 BACKUP_PATH=''
 if [[ -z ${1+x} ]]; then
     message_info "Backup filename is not specified. Should I use the last backup available?"
-    yes_no "Please confirm."
-    if [[ ${answer} -eq 0 ]]; then
-    	echo "Using the last backup available..."
-    	BACKUP_PATH=${BACKUP_DIR_PATH}/$(ls -t ${BACKUP_DIR_PATH} | head -1)
-		message_info "Using the '${BACKUP_PATH}' backup."
-	else
-		read -r -p "Please enter the path to the backup: " BACKUP_PATH
-	fi
+    if yes_no "Please confirm"; then
+        BACKUP_PATH=${DB_BACKUP_DIR_PATH}/$(ls -t ${DB_BACKUP_DIR_PATH} | head -1)
+        message_info "Using the '${BACKUP_PATH}' backup."
+    else
+        read -r -p "Please enter the path to the backup: " BACKUP_PATH
+    fi
 else
-	BACKUP_PATH="${1}"
+    BACKUP_PATH="${1}"
 fi
 
 check_file_exists "${BACKUP_PATH}"
 check_file_not_empty "${BACKUP_PATH}"
 
-message_welcome "Restoring the '${POSTGRES_DB}' database from the '${backup_filename}' backup..."
+message_welcome "Restoring the database '${DB_NAME}' from the '${BACKUP_PATH}' backup..."
+
+message_warning "This will DESTROY the current '${DB_NAME}' database locally."
+if ! yes_no "Are you sure you want to continue"; then
+    message_info "Operation cancelled by user"
+    exit 1
+fi
 
 
-export PGHOST="${POSTGRES_HOST}"
-export PGPORT="${POSTGRES_PORT}"
-export PGUSER="${POSTGRES_USER}"
-export PGPASSWORD="${POSTGRES_PASSWORD}"
-export PGDATABASE="${POSTGRES_DB}"
-
-
-message_info "Dropping the database..."
-dropdb --force "${PGDATABASE}"
-
-message_info "Creating a new database..."
-createdb --owner="${PGUSER}"
-
-message_info "Applying the backup to the new database..."
-psql "${PGDATABASE}" -Fc < ${backup_filename}
-
-message_success "The '${PGDATABASE}' database has been restored from the '${backup_filename}' backup."
-
-
-
-
-
-message_welcome "Restoring the database from the '${BACKUP_PATH}' backup..."
+message_info "Terminating existing connections..."
+docker-compose -f docker-compose.yaml exec -it db psql -U ${DB_USER} -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();"
 
 message_info "Dropping the database..."
-docker-compose -f ./docker-compose.yaml exec -it db dropdb --force "${PGDATABASE}"
+docker-compose -f docker-compose.yaml exec -it db dropdb --force -U ${DB_USER} "${DB_NAME}"
 
 message_info "Creating a new database..."
-docker-compose -f ./docker/docker-compose.yaml exec -it db createdb -O ${PGUSER} -U ${PGUSER} ${PGDATABASE}
+docker-compose -f docker-compose.yaml exec -it db createdb -O ${DB_USER} -U ${DB_USER} ${DB_NAME}
 
 message_info "Applying the backup to the new database..."
-docker-compose -f ./docker/docker-compose.yaml exec -T db pg_restore -O -U ${PGUSER} -d ${PGDATABASE} < ${BACKUP_PATH}
+docker-compose -f docker-compose.yaml exec -T db pg_restore -O -U ${DB_USER} -d ${DB_NAME} < ${BACKUP_PATH}
 
 message_success "The database has been restored from the '${BACKUP_PATH}' backup."
