@@ -47,7 +47,7 @@ services:
             - nginx-dev
         env_file:
             - ../backend/.envs/.local/.backend
-            - ../backend/.envs/.local/.do
+            - ../backend/.envs/.prod/.do
         environment:
             - POSTGRES_DB=${DB_NAME}
             - POSTGRES_USER=${DB_USER}
