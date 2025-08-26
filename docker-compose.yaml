@@ -64,12 +64,31 @@ services:
         labels:
             - dev.orbstack.domains=*.local
 
+    erebus:
+        restart: unless-stopped
+        depends_on:
+            - backend
+        links:
+            - 'nginx-dev:api.${DOMAIN}.local'
+        build:
+            context: ../erebus
+            dockerfile: Dockerfile
+        container_name: erebus-app
+        volumes:
+            - ../erebus:/app
+            - /app/.venv
+        environment:
+            - APP_ENV=local
+
+            - POSTGRES_HOST=db
+            - POSTGRES_PORT=5432
+        tty: true
+        stdin_open: true
+
     keep-rocking:
         restart: unless-stopped
         depends_on:
              - backend
-             - nginx-dev
-             - sidecar
         links:
              - 'nginx-dev:api.${DOMAIN}.local'
         build:
@@ -87,15 +106,6 @@ services:
             - "8080:3000"
         labels:
             - dev.orbstack.domains=mineralogy.rocks.local
-
-    sidecar:
-        image: ghcr.io/getsentry/spotlight:latest
-        container_name: spotlight
-        restart: unless-stopped
-        ports:
-            - "8969:8969"
-        links:
-            - 'nginx-dev:${DOMAIN}.local'
 
     backend-mindat:
         build:

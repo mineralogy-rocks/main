@@ -19,3 +19,16 @@ restore-db:
 	# the command restores the db from the specified backup or from the latest backup
 	@echo "\033[1mRestoring local db...\033[0m"
 	@bash ./bin/restore-db $(backup);
+
+# Legacy commands (for backward compatibility)
+run-parser:
+	# usage: make run-parser args
+	# the command runs parser with specified arguments (DEPRECATED - use 'make app' instead)
+	@echo "\033[1mRunning parser ...\033[0m"
+	@bash ./bin/run-parser $(args)
+
+erebus:
+	# usage: make erebus args  
+	# the command runs erebus parser with specified arguments (DEPRECATED - use 'make app' instead)
+	@echo "\033[1mRunning erebus parser ...\033[0m"
+	@bash ./bin/erebus $(args)

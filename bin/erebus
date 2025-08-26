@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+### Runs parser with specified arguments
+###
+### Parameters:
+###     <1> arguments passed in the following format, args="--process-invalid"
+###
+### Usage:
+###     $ make run-parser <1>
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+working_dir="$(dirname ${0})"
+
+source "${working_dir}/_sourced/constants.sh"
+source "${working_dir}/_sourced/messages.sh"
+
+
+message_info "Running the parser..."
+docker-compose -f docker-compose.yaml exec -it erebus "$@"
