@@ -107,6 +107,21 @@ services:
         labels:
             - dev.orbstack.domains=mineralogy.rocks.local
 
+    olena-gem:
+        restart: unless-stopped
+        build:
+            context: ../olena-gem
+            dockerfile: dev.Dockerfile
+        stdin_open: true
+        volumes:
+            - olena_gem_node_modules:/app/node_modules
+            - ../olena-gem:/app
+            - ./_data/static:/var/www/static
+        ports:
+            - "8081:8080"
+        labels:
+            - dev.orbstack.domains=olena.gem.local
+
     backend-mindat:
         build:
             context: ../mindatapi
@@ -142,5 +157,6 @@ services:
 
 volumes:
     node_modules:
+    olena_gem_node_modules:
     db:
     mysql5:
