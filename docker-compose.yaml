@@ -109,6 +109,8 @@ services:
 
     olena-gem:
         restart: unless-stopped
+        depends_on:
+          - nginx-dev
         build:
             context: ../olena-gem
             dockerfile: dev.Dockerfile
