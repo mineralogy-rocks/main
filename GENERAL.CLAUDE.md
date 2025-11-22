@@ -84,6 +84,15 @@ or we start only one container that also starts its dependencies:
 
 `docker-compose up backend`
 
+### Database queries
+
+If asked to run the database queries, you should execute them using the database container. You can use `mr` as a database name, username and password.
+**Do not execute any queries in the database that is not running on the local machine.**
+
+Here is the example:
+```
+docker-compose exec db psql -U mr -d mr -c "SELECT * FROM public.rock_type;"
+```
 
 ### Debugging
 
@@ -100,3 +109,25 @@ Always check the logs of a specific container for debugging purposes.
 7. Follow PEP-8 rules for python projects.
 8. Use `black` for formatting.
 9. Use `isort` for sorting imports.
+
+
+## Formatting rules
+
+### Python
+   - Use tabs for indentation with indent size 4.
+   - Follow PEP-8 rules for python projects.
+   - Use `black` for formatting.
+   - Use `isort` for sorting imports.
+
+### React
+   - Use tabs for indentation with indent size = 4.
+   - keep the first attribute of the component in the template in the same row, order the remaining attributes below the first attribute, aligned vertically.
+   - keep closing tag of the component in the same row.
+
+#### Example of good formatting:
+```jsx
+  <motion.div variants={variants}
+              custom={item}
+              initial={isAnimated ? "default" : ""}
+              animate={isAnimated ? "animated" : ""} />
+```

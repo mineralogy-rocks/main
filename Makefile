@@ -20,6 +20,12 @@ restore-db:
 	@echo "\033[1mRestoring local db...\033[0m"
 	@bash ./bin/restore-db $(backup);
 
+populate-claude-md:
+	# usage make populate-claude-md
+	# the commands syncs GENERAL.CLAUDE.md to root of the project
+	@echo "\033[1m Populating GENERAL.CLAUDE.md into outer scope...\033[0m"
+	cp GENERAL.CLAUDE.md ../CLAUDE.md
+
 erebus:
 	# usage: make erebus args  
 	# the command runs erebus parser with specified arguments (DEPRECATED - use 'make app' instead)
