@@ -65,6 +65,14 @@ Python-based data management application.
 - **Docker & docker-compose** for local application execution
 - **NGINX** as proxy server
 
+### Libraries Context
+
+Always use context7 when I need code generation, setup or
+configuration steps, or library/API documentation. This means
+you should automatically use the Context7 MCP tools to resolve
+library id and get library docs without me having to
+explicitly ask.
+
 ### Version Control & CI/CD
 - **GitHub** for version control
 - **GitHub Actions** for CI/CD integration
@@ -121,13 +129,13 @@ Always check the logs of a specific container for debugging purposes.
 
 ### React
    - Use tabs for indentation with indent size = 4.
-   - keep the first attribute of the component in the template in the same row, order the remaining attributes below the first attribute, aligned vertically.
+   - keep the first attribute of the component in the template in the same row, order the remaining attributes below the first attribute, aligned vertically to the first attribute.
    - keep closing tag of the component in the same row.
 
 #### Example of good formatting:
 ```jsx
-  <motion.div variants={variants}
-              custom={item}
-              initial={isAnimated ? "default" : ""}
-              animate={isAnimated ? "animated" : ""} />
+<motion.div variants={variants}
+            custom={item}
+            initial={isAnimated ? "default" : ""}
+            animate={isAnimated ? "animated" : ""} />
 ```

@@ -114,6 +114,8 @@ services:
         build:
             context: ../olena-gem
             dockerfile: dev.Dockerfile
+        env_file:
+            - ../olena-gem/.envs/.local/.env
         stdin_open: true
         volumes:
             - olena_gem_node_modules:/app/node_modules
