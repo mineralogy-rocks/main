@@ -32,6 +32,7 @@ Main orchestration repository for running applications locally.
 Django-based backend application.
 
 **🐳 Docker container name:** `backend`
+**Local URL:** http://api.mineralogy.rocks.local/
 **Status:** Main API for a client application
 
 
@@ -44,7 +45,16 @@ Next.js-based frontend application.
 - `/backend` (API)
 
 **🐳 Docker container name:** `keep-rocking`
+**Local URL:** http://mineralogy.rocks.local/
 **Status:** Current working standard - follow this repository's structure and practices for new frontend projects
+
+#### `/gems-labe`
+Gemological services website.
+
+**Stack:** Next.js 16, React 19, Tailwind CSS 4, Framer Motion, Three.js, Supabase, Resend
+
+**🐳 Docker container name:** `gems-labe`
+**Local URL:** http://gemsla.be.local/
 
 
 ### Data Management Repositories
@@ -113,10 +123,11 @@ Always check the logs of a specific container for debugging purposes.
 2. **New frontend Projects:** Follow `/keep-rocking` repository structure and practices.
 4. **Backend API:** Use `/backend` as the standard.
 5. **Documentation:** Always refer to specific `CLAUDE.md` in each repository, e.g. `/{project-name}/CLAUDE.md` for detailed development instructions, API documentation, and project-specific patterns.
-6. Use tabs for indentation.
-7. Follow PEP-8 rules for python projects.
-8. Use `black` for formatting.
-9. Use `isort` for sorting imports.
+6. Use comments ONLY when absolutely necessary. Don't pollute code with unneded.
+7. Use tabs for indentation.
+8. Follow PEP-8 rules for python projects.
+9. Use `black` for formatting.
+10. Use `isort` for sorting imports.
 
 
 ## Formatting rules
@@ -126,16 +137,3 @@ Always check the logs of a specific container for debugging purposes.
    - Follow PEP-8 rules for python projects.
    - Use `black` for formatting.
    - Use `isort` for sorting imports.
-
-### React
-   - Use tabs for indentation with indent size = 4.
-   - keep the first attribute of the component in the template in the same row, order the remaining attributes below the first attribute, aligned vertically to the first attribute.
-   - keep closing tag of the component in the same row.
-
-#### Example of good formatting:
-```jsx
-<motion.div variants={variants}
-            custom={item}
-            initial={isAnimated ? "default" : ""}
-            animate={isAnimated ? "animated" : ""} />
-```

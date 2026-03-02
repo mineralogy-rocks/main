@@ -127,7 +127,7 @@ http {
 
 	server {
 		listen 80;
-		server_name olena.gem.local;
+		server_name gemsla.be.local;
 
 		keepalive_timeout 5;
 		client_max_body_size 20m;
@@ -148,13 +148,19 @@ http {
 			proxy_http_version 1.1;
 
 			proxy_set_header Host $host;
+			proxy_set_header X-Forwarded-Host $host;
+			proxy_set_header X-Forwarded-Proto $scheme;
 			proxy_set_header Upgrade $http_upgrade;
 			proxy_set_header Connection 'upgrade';
 			proxy_cache_bypass $http_upgrade;
 
+			proxy_buffer_size 16k;
+			proxy_buffers 4 16k;
+			proxy_busy_buffers_size 16k;
+
 			add_header Cache-Control 'no-store';
 
-			set $frontend_upstream olena-gem:8080;
+			set $frontend_upstream gems-labe:8080;
 			proxy_pass http://$frontend_upstream;
 		}
 	}

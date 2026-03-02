@@ -107,24 +107,28 @@ services:
         labels:
             - dev.orbstack.domains=mineralogy.rocks.local
 
-    olena-gem:
+    gems-labe:
+        container_name: gems-labe
         restart: unless-stopped
         depends_on:
           - nginx-dev
         build:
-            context: ../olena-gem
+            context: ../gems-labe
             dockerfile: dev.Dockerfile
         env_file:
-            - ../olena-gem/.envs/.local/.env
+            - ../gems-labe/.envs/.local/.env
+        environment:
+            - NEXT_PUBLIC_SITE_URL=http://gemsla.be.local
+            - NEXT_PUBLIC_SUPABASE_URL=http://host.docker.internal:54321
         stdin_open: true
         volumes:
-            - olena_gem_node_modules:/app/node_modules
-            - ../olena-gem:/app
+            - gems_labe_node_modules:/app/node_modules
+            - ../gems-labe:/app
             - ./_data/static:/var/www/static
         ports:
             - "8081:8080"
         labels:
-            - dev.orbstack.domains=olena.gem.local
+            - dev.orbstack.domains=gemsla.be.local
 
     backend-mindat:
         build:
@@ -161,6 +165,6 @@ services:
 
 volumes:
     node_modules:
-    olena_gem_node_modules:
+    gems_labe_node_modules:
     db:
     mysql5:

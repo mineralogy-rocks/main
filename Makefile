@@ -20,11 +20,11 @@ restore-db:
 	@echo "\033[1mRestoring local db...\033[0m"
 	@bash ./bin/restore-db $(backup);
 
-populate-claude-md:
-	# usage make populate-claude-md
-	# the commands syncs GENERAL.CLAUDE.md to root of the project
-	@echo "\033[1m Populating GENERAL.CLAUDE.md into outer scope...\033[0m"
-	cp GENERAL.CLAUDE.md ../CLAUDE.md
+sync-claude:
+	# usage: make sync-claude
+	# the command creates a symlink from main/GENERAL.CLAUDE.md to CLAUDE.md in the project root
+	@echo "\033[1m Creating symlink for CLAUDE.md...\033[0m"
+	@ln -sf main/GENERAL.CLAUDE.md ../CLAUDE.md
 
 erebus:
 	# usage: make erebus args  
