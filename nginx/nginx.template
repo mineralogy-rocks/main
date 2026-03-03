@@ -57,40 +57,6 @@ http {
 		}
 	}
 
-  server {
-		listen 80;
-		server_name api.dev.mindat.org;
-
-		keepalive_timeout 5;
-		client_max_body_size 20m;
-
-		location = /favicon.ico {
-			alias /var/www/static/img/favicon/favicon.ico;
-		}
-
-		location /media  {
-			alias /var/www/media;
-		}
-
-		location /static {
-			alias /var/www/static;
-		}
-
-		location / {
-			proxy_http_version 1.1;
-
-			proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-			proxy_set_header Host $host;
-			proxy_redirect off;
-
-			add_header Cache-Control 'no-store';
-
-			set $backend_upstream backend_mindat:8000;
-			proxy_pass http://$backend_upstream;
-
-		}
-	}
-
 	server {
 		listen 80;
 		server_name ${DOMAIN}.local;
@@ -167,35 +133,28 @@ http {
 
 	server {
 		listen 80;
-		server_name sidecar.local;
+		server_name supabase.gemsla.be.local;
 
-		keepalive_timeout 5;
-		client_max_body_size 20m;
-
-		location = /favicon.ico {
-			alias /var/www/static/img/favicon/favicon.ico;
-		}
-
-		location /media  {
-			alias /var/www/media;
-		}
-
-		location /static {
-			alias /var/www/static;
-		}
+		keepalive_timeout 65;
+		client_max_body_size 60m;
 
 		location / {
 			proxy_http_version 1.1;
 
-			proxy_set_header Host $host;
+			proxy_set_header Host localhost:54321;
+			proxy_set_header X-Real-IP $remote_addr;
+			proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+			proxy_set_header X-Forwarded-Proto $scheme;
 			proxy_set_header Upgrade $http_upgrade;
 			proxy_set_header Connection 'upgrade';
 			proxy_cache_bypass $http_upgrade;
 
-			add_header Cache-Control 'no-store';
+			proxy_read_timeout 86400s;
+			proxy_send_timeout 86400s;
+			proxy_buffering off;
 
-			set $frontend_upstream sidecar:8969;
-			proxy_pass http://$frontend_upstream;
+			set $supabase_upstream host.docker.internal:54321;
+			proxy_pass http://$supabase_upstream;
 		}
 	}
 }
