@@ -2,6 +2,10 @@
 
 This folder is a root-level directory containing repositories for the data management, and client and backend applications and 
 
+## Issue Tracker
+
+We are using GitHub issues to track bugs and feature requests.
+
 ## Technology Stack
 
 - **NGINX** - Proxy server
@@ -126,8 +130,6 @@ Always check the logs of a specific container for debugging purposes.
 6. Use comments ONLY when absolutely necessary. Don't pollute code with unneded.
 7. Use tabs for indentation.
 8. Follow PEP-8 rules for python projects.
-9. Use `black` for formatting.
-10. Use `isort` for sorting imports.
 
 
 ## Formatting rules
@@ -135,5 +137,3 @@ Always check the logs of a specific container for debugging purposes.
 ### Python
    - Use tabs for indentation with indent size 4.
    - Follow PEP-8 rules for python projects.
-   - Use `black` for formatting.
-   - Use `isort` for sorting imports.

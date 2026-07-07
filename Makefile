@@ -20,11 +20,23 @@ restore-db:
 	@echo "\033[1mRestoring local db...\033[0m"
 	@bash ./bin/restore-db $(backup);
 
-sync-claude:
-	# usage: make sync-claude
-	# the command creates a symlink from main/GENERAL.CLAUDE.md to CLAUDE.md in the project root
-	@echo "\033[1m Creating symlink for CLAUDE.md...\033[0m"
-	@ln -sf main/GENERAL.CLAUDE.md ../CLAUDE.md
+sync-prod-target:
+	# usage: make sync-prod-target target=local   (or target=dev)
+	# dumps the production db + media and restores/mirrors them into the target environment
+	@echo "\033[1mSyncing production → $(target)...\033[0m"
+	@bash ./bin/sync-prod-target $(target);
+
+sync-supabase-local:
+	# usage: make sync-supabase-local
+	# syncs production Supabase DB and storage to local for gems-labe
+	@bash ./bin/sync-supabase-local;
+
+sync-agents:
+	# usage: make sync-agents
+	# the command creates symlinks from main/GENERAL.AGENTS.md to CLAUDE.md and AGENTS.md in the project root
+	@echo "\033[1m Creating symlinks for CLAUDE.md and AGENTS.md...\033[0m"
+	@ln -sf main/GENERAL.AGENTS.md ../CLAUDE.md
+	@ln -sf main/GENERAL.AGENTS.md ../AGENTS.md
 
 erebus:
 	# usage: make erebus args  

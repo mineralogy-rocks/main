@@ -1,0 +1,7 @@
+services:
+
+    aws-s3:
+        image: amazon/aws-cli:latest
+        restart: "no"
+        volumes:
+            - ./_data/media:/media

@@ -114,6 +114,7 @@ services:
         restart: unless-stopped
         depends_on:
           - nginx-dev
+          - backend
         links:
             - 'nginx-dev:api.${DOMAIN}.local'
         build:
@@ -125,8 +126,7 @@ services:
             - NEXT_PUBLIC_SITE_URL=http://gemsla.be.local
             - NEXT_PUBLIC_SUPABASE_URL=http://supabase.gemsla.be.local
             - API_URL=http://api.${DOMAIN}.local
-            - NEXT_PUBLIC_DJANGO_URL=http://api.mineralogy.rocks.local
-            - DJANGO_API_URL=http://backend:8000
+            - NEXT_PUBLIC_API_URL=http://api.${DOMAIN}.local
         stdin_open: true
         volumes:
             - gems_labe_node_modules:/app/node_modules

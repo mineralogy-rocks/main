@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+
+### Sync the production database and media into a target environment.
+###
+### Dumps the production DB to a local backup file, restores it into the target
+### (the local docker `db` container, or the deployed dev db over SSH), then
+### mirrors the production media bucket into the target's media storage.
+###
+### The storage backend (S3 vs filesystem) is a Django settings concern, not
+### stored in the DB, so no path rewriting is needed on restore. The only
+### storage work is pulling the actual files from the prod bucket down to the
+### target's filesystem media so references resolve.
+###
+### Parameters:
+###     <1> target environment: "local" or "dev".
+###
+### Usage:
+###     $ make sync-prod-target target=local
+###     $ make sync-prod-target target=dev
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+working_dir="$(dirname ${0})"
+source './.env'
+source "${working_dir}/_sourced/constants.sh"
+source "${working_dir}/_sourced/messages.sh"
+source "${working_dir}/_sourced/utils.sh"
+source "${working_dir}/_sourced/yes_no.sh"
+
+TARGET="${1:-}"
+
+
+# ── Validation ─────────────────────────────────────────────────
+if [[ "${TARGET}" != "local" && "${TARGET}" != "dev" ]]; then
+	message_error "Target must be 'local' or 'dev'. Usage: make sync-prod-target target=local|dev"
+	exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+	message_error "Docker is not running. Please start Docker and try again."
+	exit 1
+fi
+
+
+for var in AWS_STORAGE_BUCKET_NAME AWS_S3_ENDPOINT_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+	if [ -z "${!var:-}" ]; then
+		message_error "$var is not set in ./.env"
+		exit 1
+	fi
+done
+
+if [[ "${TARGET}" == "dev" ]]; then
+	for var in HOST HOST_USERNAME APP_NAME SHARE_PATH; do
+		if [ -z "${!var:-}" ]; then
+			message_error "$var is required for target=dev. Set it in ./.env."
+			exit 1
+		fi
+	done
+fi
+
+
+# ── Transport helper ───────────────────────────────────────────
+# Run a command inside the target's postgres container.
+#   local -> the compose `db` service
+#   dev   -> `${APP_NAME}-db` on the dev host over SSH
+db_exec() {
+	case "${TARGET}" in
+		local)
+			docker-compose -f docker-compose.yaml exec -T db "$@"
+			;;
+		dev)
+			ssh "${HOST_USERNAME}@${HOST}" docker exec -i "${APP_NAME}-db" "$@"
+			;;
+	esac
+}
+
+
+# ── Steps ──────────────────────────────────────────────────────
+resolve_db_credentials() {
+	message_info "Resolving target database credentials from the container..."
+	TGT_USER="$(db_exec printenv POSTGRES_USER | tr -d '\r\n')"
+	TGT_DB="$(db_exec printenv POSTGRES_DB | tr -d '\r\n')"
+
+	if [ -z "${TGT_USER}" ] || [ -z "${TGT_DB}" ]; then
+		message_error "Could not resolve POSTGRES_USER/POSTGRES_DB from the target db container."
+		message_suggestion "Is the target database container running?"
+		exit 1
+	fi
+	message_info "Target database: '${TGT_DB}' (user '${TGT_USER}')."
+}
+
+dump_production() {
+	BACKUP_NAME="db__$(date +%d.%m.%Y__%H-%M).dump"
+	message_info "Dumping production database → ${DB_BACKUP_DIR_PATH}/${BACKUP_NAME} ..."
+	bash "${working_dir}/dump-prod-db" "${BACKUP_NAME}"
+
+	BACKUP_FILE="${DB_BACKUP_DIR_PATH}/${BACKUP_NAME}"
+	check_file_exists "${BACKUP_FILE}"
+	check_file_not_empty "${BACKUP_FILE}"
+}
+
+restore_database() {
+	local backup_file="${1}"
+
+	message_info "Dropping the '${TGT_DB}' database on target '${TARGET}' (force)..."
+	db_exec dropdb --force -U "${TGT_USER}" "${TGT_DB}"
+
+	message_info "Creating a fresh '${TGT_DB}' database..."
+	db_exec createdb -O "${TGT_USER}" -U "${TGT_USER}" "${TGT_DB}"
+
+	message_info "Restoring the backup into '${TGT_DB}'..."
+	db_exec pg_restore -O -U "${TGT_USER}" -d "${TGT_DB}" < "${backup_file}"
+
+	message_success "Database restored into target '${TARGET}'."
+}
+
+sync_media() {
+	local s3_uri="s3://${AWS_STORAGE_BUCKET_NAME}/"
+	message_info "Mirroring ${s3_uri} (excluding static/) into target '${TARGET}' media..."
+
+	case "${TARGET}" in
+		local)
+			docker-compose -f docker-compose.backup.yaml run --rm aws-s3 \
+				s3 sync "${s3_uri}" /media \
+				--delete \
+				--exclude "static/*" \
+				--endpoint-url "${AWS_S3_ENDPOINT_URL}"
+			;;
+		dev)
+			# Single-quoted on the remote side so `static/*` isn't glob-expanded
+			# by the dev host shell and secrets survive re-parsing intact.
+			ssh "${HOST_USERNAME}@${HOST}" "docker run --rm \
+				-e AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
+				-e AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
+				-v '${SHARE_PATH}/${APP_NAME}/media:/media' \
+				amazon/aws-cli:latest \
+				s3 sync 's3://${AWS_STORAGE_BUCKET_NAME}/' /media \
+				--delete \
+				--exclude 'static/*' \
+				--endpoint-url '${AWS_S3_ENDPOINT_URL}'"
+			;;
+	esac
+
+	message_success "Media mirrored into target '${TARGET}'."
+}
+
+
+# ── Flow ───────────────────────────────────────────────────────
+message_newline
+message_welcome "Production → ${TARGET} sync"
+message_info "  Database: production dump → ${TARGET} restore (restore-only, no migrate)"
+message_info "  Media:    mirror s3://${AWS_STORAGE_BUCKET_NAME}/ (excluding static/) → ${TARGET} media"
+message_newline
+
+resolve_db_credentials
+
+message_warning "This will DESTROY the '${TGT_DB}' database and mirror media on target '${TARGET}'."
+if ! yes_no "Are you sure you want to continue"; then
+	message_info "Operation cancelled by user"
+	exit 1
+fi
+
+dump_production
+restore_database "${BACKUP_FILE}"
+sync_media
+
+message_newline
+message_success "Production → ${TARGET} sync complete."
+message_info "  Backup kept at: ${BACKUP_FILE}"
