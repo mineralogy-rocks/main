@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+
+### Sync a source Supabase project (production by default, or the local
+### gems-labe Supabase stack) into a target Django backend environment.
+###
+### This script NEVER writes to Supabase. The source Supabase (prod or
+### local) is only ever read from: this script resolves a connection string
+### (DSN) plus a storage URL/service_role key for the source and hands them,
+### unmodified, to the target's Django `migrate_from_supabase` management
+### command, which runs INSIDE the target backend container. That command
+### is READ-ONLY against the source and writes only into the target's
+### Django database + media storage.
+###
+### Parameters:
+###     <1> target (required): "local" | "dev" | "prod"
+###         Where the Django data is written.
+###     <2> source (optional, default "prod"): "prod" | "local"
+###         Which Supabase to read from. "local" is only valid when
+###         target=local (you cannot pull the local Supabase stack into a
+###         deployed dev/prod backend over SSH).
+###     [-- extra flags]: everything after a literal "--" is forwarded
+###         verbatim to `migrate_from_supabase`, e.g. --reset, --dry-run,
+###         --check, --skip-storage.
+###
+### Usage:
+###     $ make sync-supabase target=local            # source defaults to prod
+###     $ make sync-supabase target=local source=local
+###     $ make sync-supabase target=dev
+###     $ make sync-supabase target=prod source=prod
+###     $ bash ./bin/sync-supabase local prod -- --dry-run
+###     $ bash ./bin/sync-supabase local local -- --reset
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+working_dir="$(dirname ${0})"
+source './.env'
+source "${working_dir}/_sourced/messages.sh"
+source "${working_dir}/_sourced/yes_no.sh"
+
+# ── Constants ──────────────────────────────────────────────────
+GEMS_LABE_DIR="../gems-labe"
+PROD_ENV_FILE="${GEMS_LABE_DIR}/.envs/.prod/.env"
+SUPABASE_PROJECT_REF="vhztqhyeqwjtyjcvibzv"
+POOLER_HOST="aws-1-eu-north-1.pooler.supabase.com"
+
+
+# ── Argument parsing ───────────────────────────────────────────
+TARGET="${1:-}"
+if [ $# -gt 0 ]; then
+	shift
+fi
+
+SOURCE="prod"
+if [ $# -gt 0 ] && [ "${1}" != "--" ]; then
+	SOURCE="${1}"
+	shift
+fi
+
+EXTRA_ARGS=()
+if [ $# -gt 0 ]; then
+	if [ "${1}" == "--" ]; then
+		shift
+		EXTRA_ARGS=("$@")
+	else
+		# Guard: a leftover token that isn't "--" means the caller forgot the
+		# separator. Without this, a flag like --dry-run would be silently
+		# dropped and the script would run a REAL migration.
+		message_error "Unexpected argument '${1}'. Forward flags after a literal '--', e.g.: bash ./bin/sync-supabase ${TARGET} ${SOURCE} -- --dry-run"
+		exit 1
+	fi
+fi
+
+
+# ── Validation ─────────────────────────────────────────────────
+if [[ "${TARGET}" != "local" && "${TARGET}" != "dev" && "${TARGET}" != "prod" ]]; then
+	message_error "Target must be 'local', 'dev' or 'prod'. Usage: make sync-supabase target=local|dev|prod [source=prod|local]"
+	exit 1
+fi
+
+if [[ "${SOURCE}" != "prod" && "${SOURCE}" != "local" ]]; then
+	message_error "Source must be 'prod' or 'local'."
+	exit 1
+fi
+
+if [[ "${SOURCE}" == "local" && "${TARGET}" != "local" ]]; then
+	message_error "source=local is only valid when target=local (cannot pull the local Supabase stack into a remote target)."
+	exit 1
+fi
+
+require_cmd() {
+	local cmd="${1}"
+	if ! command -v "${cmd}" &>/dev/null; then
+		message_error "${cmd} is not installed."
+		exit 1
+	fi
+}
+
+require_cmd jq
+require_cmd supabase
+
+if [[ "${TARGET}" == "local" ]]; then
+	require_cmd docker
+
+	if ! docker info >/dev/null 2>&1; then
+		message_error "Docker is not running. Please start Docker and try again."
+		exit 1
+	fi
+fi
+
+if [[ "${TARGET}" == "dev" || "${TARGET}" == "prod" ]]; then
+	require_cmd ssh
+
+	for var in HOST HOST_USERNAME APP_NAME; do
+		if [ -z "${!var:-}" ]; then
+			message_error "${var} is required for target=${TARGET}. Set it in ./.env."
+			exit 1
+		fi
+	done
+fi
+
+
+# ── Resolve source credentials (READ-ONLY against Supabase) ────
+# Populates SOURCE_DSN / SOURCE_STORAGE_URL / SOURCE_STORAGE_KEY. Values are
+# never printed (they carry the DB password / service_role key).
+resolve_source() {
+	case "${SOURCE}" in
+		prod)
+			if [ ! -f "${PROD_ENV_FILE}" ]; then
+				message_error "Production env file not found: ${PROD_ENV_FILE}"
+				exit 1
+			fi
+			source "${PROD_ENV_FILE}"
+
+			local db_password="${DATABASE_PASSWORD:-}"
+			local supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-}"
+
+			if [ -z "${db_password}" ] || [ -z "${supabase_url}" ]; then
+				message_error "DATABASE_PASSWORD / NEXT_PUBLIC_SUPABASE_URL not set in ${PROD_ENV_FILE}"
+				exit 1
+			fi
+
+			message_info "Fetching production Supabase service_role key..."
+			# `|| true` so a failing supabase CLI (under errexit+pipefail)
+			# doesn't kill the script before the friendly emptiness check below.
+			SOURCE_STORAGE_KEY="$(supabase projects api-keys --project-ref "${SUPABASE_PROJECT_REF}" --output json 2>/dev/null \
+				| jq -r '.[] | select(.name == "service_role") | .api_key')" || true
+
+			if [ -z "${SOURCE_STORAGE_KEY}" ]; then
+				message_error "Could not retrieve production service_role key. Run: supabase login"
+				exit 1
+			fi
+
+			SOURCE_DSN="postgresql://postgres.${SUPABASE_PROJECT_REF}:${db_password}@${POOLER_HOST}:5432/postgres"
+			SOURCE_STORAGE_URL="${supabase_url}"
+			;;
+		local)
+			message_info "Fetching local Supabase service_role key..."
+			SOURCE_STORAGE_KEY="$(cd "${GEMS_LABE_DIR}" && supabase status --output json 2>/dev/null \
+				| jq -r '.SERVICE_ROLE_KEY')" || true
+
+			if [ -z "${SOURCE_STORAGE_KEY}" ]; then
+				message_error "Could not retrieve local Supabase service_role key."
+				message_suggestion "Run: cd ${GEMS_LABE_DIR} && supabase start"
+				exit 1
+			fi
+
+			# host.docker.internal is resolved from INSIDE the target backend
+			# container (which is where migrate_from_supabase actually runs),
+			# so this correctly reaches the host's local Supabase stack.
+			SOURCE_DSN="postgresql://postgres:postgres@host.docker.internal:54322/postgres"
+			SOURCE_STORAGE_URL="http://host.docker.internal:54321"
+			;;
+	esac
+}
+
+
+# ── Transport: run migrate_from_supabase inside the target backend ─
+# Secret-bearing args are single-quoted on the remote side (dev/prod) so
+# they survive re-parsing by the remote shell intact, mirroring how
+# sync-prod-target quotes AWS credentials for its dev s3 sync.
+run_migrate() {
+	case "${TARGET}" in
+		local)
+			docker-compose -f docker-compose.yaml exec -T backend \
+				python manage.py migrate_from_supabase \
+				--source-dsn "${SOURCE_DSN}" \
+				--storage-url "${SOURCE_STORAGE_URL}" \
+				--storage-key "${SOURCE_STORAGE_KEY}" \
+				${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+			;;
+		dev|prod)
+			# NOTE: the deployed backend container may not actually be named
+			# "${APP_NAME}-backend" on the target host — adjust here if it
+			# differs (see docker-compose.yaml / the deploy tooling for the
+			# real name before running against dev/prod).
+			#
+			# The remote command is a single string re-parsed by the remote
+			# shell, so every token (incl. the DB password inside SOURCE_DSN,
+			# the service_role key, and any forwarded flags) is shell-escaped
+			# with `printf %q`. Splicing them in raw would allow a value that
+			# happens to contain quotes or $(...) to inject remote commands.
+			local -a remote_cmd=(
+				docker exec -i "${APP_NAME}-backend"
+				python manage.py migrate_from_supabase
+				--source-dsn "${SOURCE_DSN}"
+				--storage-url "${SOURCE_STORAGE_URL}"
+				--storage-key "${SOURCE_STORAGE_KEY}"
+			)
+			if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
+				remote_cmd+=("${EXTRA_ARGS[@]}")
+			fi
+			local remote_escaped
+			remote_escaped="$(printf '%q ' "${remote_cmd[@]}")"
+			ssh "${HOST_USERNAME}@${HOST}" "${remote_escaped}"
+			;;
+	esac
+}
+
+
+# ── Flow ───────────────────────────────────────────────────────
+message_newline
+message_welcome "Supabase (${SOURCE}) → Django target '${TARGET}' migration"
+message_info "  Source Supabase (${SOURCE}) is accessed READ-ONLY; nothing is written back to it."
+message_info "  Target: the '${TARGET}' Django backend DB + media, via migrate_from_supabase."
+if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
+	message_info "  Extra flags: ${EXTRA_ARGS[*]}"
+fi
+message_newline
+
+if [[ "${TARGET}" == "dev" || "${TARGET}" == "prod" ]]; then
+	message_warning "You are about to write into the '${TARGET}' Django backend (over SSH to ${HOST})."
+fi
+if [[ "${TARGET}" == "prod" ]]; then
+	message_warning "THIS TARGET IS PRODUCTION. This will modify the production Django database/media."
+fi
+
+if ! yes_no "Are you sure you want to continue"; then
+	message_info "Operation cancelled by user"
+	exit 1
+fi
+
+if [[ "${TARGET}" == "prod" ]]; then
+	message_warning "Final check: type 'prod' (without quotes) to confirm writing into PRODUCTION."
+	confirm_prod=""
+	read -r -p "Type 'prod' to continue: " confirm_prod
+	if [[ "${confirm_prod}" != "prod" ]]; then
+		message_error "Confirmation failed. Aborting."
+		exit 1
+	fi
+fi
+
+# Resolve credentials only after the user has consented (these make read-only
+# network/CLI calls to Supabase).
+resolve_source
+
+run_migrate
+
+message_newline
+message_success "Supabase (${SOURCE}) → ${TARGET} migration complete."

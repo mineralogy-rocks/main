@@ -31,6 +31,13 @@ sync-supabase-local:
 	# syncs production Supabase DB and storage to local for gems-labe
 	@bash ./bin/sync-supabase-local;
 
+sync-supabase:
+	# usage: make sync-supabase target=local|dev|prod [source=prod|local]
+	# source defaults to "prod" when omitted; source=local is only valid when target=local
+	# reads Supabase (source) READ-ONLY and migrates it into the target Django backend
+	# via the migrate_from_supabase management command
+	@bash ./bin/sync-supabase $(target) $(source);
+
 sync-agents:
 	# usage: make sync-agents
 	# the command creates symlinks from main/GENERAL.AGENTS.md to CLAUDE.md and AGENTS.md in the project root
