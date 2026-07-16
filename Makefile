@@ -32,11 +32,11 @@ sync-supabase-local:
 	@bash ./bin/sync-supabase-local;
 
 sync-supabase:
-	# usage: make sync-supabase target=local|dev|prod [source=prod|local]
+	# usage: make sync-supabase target=local|dev|prod [source=prod|local] [flags="--reset --dry-run"]
 	# source defaults to "prod" when omitted; source=local is only valid when target=local
+	# flags are forwarded verbatim to the migrate_from_supabase management command
 	# reads Supabase (source) READ-ONLY and migrates it into the target Django backend
-	# via the migrate_from_supabase management command
-	@bash ./bin/sync-supabase $(target) $(source);
+	@bash ./bin/sync-supabase $(target) $(source) $(flags);
 
 sync-agents:
 	# usage: make sync-agents

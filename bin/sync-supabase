@@ -18,17 +18,19 @@
 ###         Which Supabase to read from. "local" is only valid when
 ###         target=local (you cannot pull the local Supabase stack into a
 ###         deployed dev/prod backend over SSH).
-###     [-- extra flags]: everything after a literal "--" is forwarded
-###         verbatim to `migrate_from_supabase`, e.g. --reset, --dry-run,
-###         --check, --skip-storage.
+###     [extra flags]: everything from the first "--flag" onwards is
+###         forwarded verbatim to `migrate_from_supabase`, e.g. --reset,
+###         --dry-run, --check, --skip-storage. (A legacy leading "--"
+###         separator is still accepted and ignored.)
 ###
 ### Usage:
 ###     $ make sync-supabase target=local            # source defaults to prod
 ###     $ make sync-supabase target=local source=local
+###     $ make sync-supabase target=local flags="--reset"
 ###     $ make sync-supabase target=dev
 ###     $ make sync-supabase target=prod source=prod
-###     $ bash ./bin/sync-supabase local prod -- --dry-run
-###     $ bash ./bin/sync-supabase local local -- --reset
+###     $ bash ./bin/sync-supabase local prod --dry-run
+###     $ bash ./bin/sync-supabase local local --reset
 
 set -o errexit
 set -o pipefail
@@ -47,30 +49,39 @@ POOLER_HOST="aws-1-eu-north-1.pooler.supabase.com"
 
 
 # ── Argument parsing ───────────────────────────────────────────
-TARGET="${1:-}"
-if [ $# -gt 0 ]; then
-	shift
-fi
-
+# Positionals (target, source) never start with "--", so the first "--flag"
+# token marks the start of args forwarded verbatim to migrate_from_supabase.
+# A legacy leading "--" separator is accepted and skipped.
+TARGET=""
 SOURCE="prod"
-if [ $# -gt 0 ] && [ "${1}" != "--" ]; then
-	SOURCE="${1}"
-	shift
-fi
-
+source_set=false
 EXTRA_ARGS=()
-if [ $# -gt 0 ]; then
-	if [ "${1}" == "--" ]; then
-		shift
-		EXTRA_ARGS=("$@")
-	else
-		# Guard: a leftover token that isn't "--" means the caller forgot the
-		# separator. Without this, a flag like --dry-run would be silently
-		# dropped and the script would run a REAL migration.
-		message_error "Unexpected argument '${1}'. Forward flags after a literal '--', e.g.: bash ./bin/sync-supabase ${TARGET} ${SOURCE} -- --dry-run"
-		exit 1
-	fi
-fi
+
+while [ $# -gt 0 ]; do
+	case "${1}" in
+		--)
+			shift
+			EXTRA_ARGS=("$@")
+			break
+			;;
+		--*)
+			EXTRA_ARGS=("$@")
+			break
+			;;
+		*)
+			if [ -z "${TARGET}" ]; then
+				TARGET="${1}"
+			elif [ "${source_set}" == false ]; then
+				SOURCE="${1}"
+				source_set=true
+			else
+				message_error "Unexpected argument '${1}'. Usage: bash ./bin/sync-supabase <target> [source] [--flags...]"
+				exit 1
+			fi
+			shift
+			;;
+	esac
+done
 
 
 # ── Validation ─────────────────────────────────────────────────
@@ -191,18 +202,8 @@ run_migrate() {
 				${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 			;;
 		dev|prod)
-			# NOTE: the deployed backend container may not actually be named
-			# "${APP_NAME}-backend" on the target host — adjust here if it
-			# differs (see docker-compose.yaml / the deploy tooling for the
-			# real name before running against dev/prod).
-			#
-			# The remote command is a single string re-parsed by the remote
-			# shell, so every token (incl. the DB password inside SOURCE_DSN,
-			# the service_role key, and any forwarded flags) is shell-escaped
-			# with `printf %q`. Splicing them in raw would allow a value that
-			# happens to contain quotes or $(...) to inject remote commands.
 			local -a remote_cmd=(
-				docker exec -i "${APP_NAME}-backend"
+				docker exec -i "${APP_NAME}"
 				python manage.py migrate_from_supabase
 				--source-dsn "${SOURCE_DSN}"
 				--storage-url "${SOURCE_STORAGE_URL}"
