@@ -21,10 +21,10 @@ restore-db:
 	@bash ./bin/restore-db $(backup);
 
 sync-prod-target:
-	# usage: make sync-prod-target target=local   (or target=dev)
+	# usage: make sync-prod-target [target=local|dev] [flags="--skip-media --dry-run --yes"]
+	# target defaults to "local" when omitted
 	# dumps the production db + media and restores/mirrors them into the target environment
-	@echo "\033[1mSyncing production → $(target)...\033[0m"
-	@bash ./bin/sync-prod-target $(target);
+	@bash ./bin/sync-prod-target $(target) $(flags);
 
 sync-supabase-local:
 	# usage: make sync-supabase-local

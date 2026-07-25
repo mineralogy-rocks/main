@@ -6,17 +6,35 @@
 ### (the local docker `db` container, or the deployed dev db over SSH), then
 ### mirrors the production media bucket into the target's media storage.
 ###
+### Production bucket credentials come from ../backend/.envs/.prod/.backend
+### (DJANGO_AWS_*), falling back to ./.env (AWS_*); they are passed explicitly
+### into the aws-cli container, which has no ambient AWS config.
+###
 ### The storage backend (S3 vs filesystem) is a Django settings concern, not
 ### stored in the DB, so no path rewriting is needed on restore. The only
 ### storage work is pulling the actual files from the prod bucket down to the
 ### target's filesystem media so references resolve.
 ###
 ### Parameters:
-###     <1> target environment: "local" or "dev".
+###     <1> target (optional, default "local"): "local" | "dev"
+###         Where the production data is written.
+###     [extra flags]: parsed by this script, in any order and mixed with the
+###         positional target:
+###             --skip-db      leave the target database untouched
+###             --skip-media   leave the target media untouched
+###             --dry-run      report the steps; no dump, no restore, and the
+###                            media mirror runs as `aws s3 sync --dryrun`
+###             --yes, -y      skip the interactive confirmation
+###         (A legacy leading "--" separator is still accepted and ignored.)
 ###
 ### Usage:
-###     $ make sync-prod-target target=local
+###     $ make sync-prod-target                                  # target defaults to local
 ###     $ make sync-prod-target target=dev
+###     $ make sync-prod-target flags="--skip-media"
+###     $ make sync-prod-target target=dev flags="--dry-run"
+###     $ bash ./bin/sync-prod-target
+###     $ bash ./bin/sync-prod-target dev --skip-db
+###     $ bash ./bin/sync-prod-target --yes --skip-media local
 
 set -o errexit
 set -o pipefail
@@ -29,27 +47,115 @@ source "${working_dir}/_sourced/messages.sh"
 source "${working_dir}/_sourced/utils.sh"
 source "${working_dir}/_sourced/yes_no.sh"
 
-TARGET="${1:-}"
+# ── Constants ──────────────────────────────────────────────────
+DEFAULT_TARGET="local"
+PROD_BACKEND_ENV_FILE="../backend/.envs/.prod/.backend"
+
+
+# ── Argument parsing ───────────────────────────────────────────
+# The positional target never starts with "--", so flags and the target may be
+# given in any order. A legacy leading "--" separator is accepted and skipped.
+TARGET=""
+SKIP_DB=false
+SKIP_MEDIA=false
+DRY_RUN=false
+ASSUME_YES=false
+
+usage="Usage: bash ./bin/sync-prod-target [local|dev] [--skip-db] [--skip-media] [--dry-run] [--yes]"
+
+while [ $# -gt 0 ]; do
+	case "${1}" in
+		--)
+			;;
+		--skip-db)
+			SKIP_DB=true
+			;;
+		--skip-media)
+			SKIP_MEDIA=true
+			;;
+		--dry-run)
+			DRY_RUN=true
+			;;
+		--yes|-y)
+			ASSUME_YES=true
+			;;
+		--*|-?)
+			message_error "Unknown flag '${1}'. ${usage}"
+			exit 1
+			;;
+		*)
+			if [ -z "${TARGET}" ]; then
+				TARGET="${1}"
+			else
+				message_error "Unexpected argument '${1}'. ${usage}"
+				exit 1
+			fi
+			;;
+	esac
+	shift
+done
+
+TARGET="${TARGET:-${DEFAULT_TARGET}}"
+
+
+# ── Storage credentials ────────────────────────────────────────
+# The aws-cli containers get no ambient AWS config, so the production bucket
+# credentials are resolved here and passed in explicitly: DJANGO_AWS_* from the
+# backend's production env file (the same source of truth `dump-prod-db` uses
+# for the database), with ./.env AWS_* as a fallback.
+resolve_storage_credentials() {
+	local key value
+
+	# Read, not sourced: that file is a docker env-file, so its values are
+	# unquoted and `source` dies on the shell metacharacters in SECRET_KEY.
+	if [ -f "${PROD_BACKEND_ENV_FILE}" ]; then
+		while IFS='=' read -r key value; do
+			case "${key}" in
+				DJANGO_AWS_*) printf -v "${key#DJANGO_}" '%s' "${value%$'\r'}" ;;
+			esac
+		done < "${PROD_BACKEND_ENV_FILE}"
+	fi
+
+	for key in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_STORAGE_BUCKET_NAME AWS_S3_ENDPOINT_URL; do
+		if [ -z "${!key:-}" ]; then
+			message_error "${key} could not be resolved."
+			message_suggestion "Set DJANGO_${key} in ${PROD_BACKEND_ENV_FILE} or ${key} in ./.env"
+			exit 1
+		fi
+	done
+
+	# The backend stores the endpoint without a scheme; aws-cli requires one.
+	case "${AWS_S3_ENDPOINT_URL}" in
+		http://*|https://*) ;;
+		*) AWS_S3_ENDPOINT_URL="https://${AWS_S3_ENDPOINT_URL}" ;;
+	esac
+}
 
 
 # ── Validation ─────────────────────────────────────────────────
 if [[ "${TARGET}" != "local" && "${TARGET}" != "dev" ]]; then
-	message_error "Target must be 'local' or 'dev'. Usage: make sync-prod-target target=local|dev"
+	message_error "Target must be 'local' or 'dev'. Usage: make sync-prod-target [target=local|dev]"
 	exit 1
 fi
 
-if ! docker info >/dev/null 2>&1; then
-	message_error "Docker is not running. Please start Docker and try again."
+if [[ "${SKIP_DB}" == true && "${SKIP_MEDIA}" == true ]]; then
+	message_error "Nothing to do: --skip-db and --skip-media were both given."
 	exit 1
 fi
 
-
-for var in AWS_STORAGE_BUCKET_NAME AWS_S3_ENDPOINT_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
-	if [ -z "${!var:-}" ]; then
-		message_error "$var is not set in ./.env"
+# Local docker is needed for every local step, and for the production dump
+# itself (pg_dump runs in the local `db` container) whatever the target is.
+if [[ "${TARGET}" == "local" || "${SKIP_DB}" == false ]]; then
+	if ! docker info >/dev/null 2>&1; then
+		message_error "Docker is not running. Please start Docker and try again."
 		exit 1
 	fi
-done
+fi
+
+
+if [[ "${SKIP_MEDIA}" == false ]]; then
+	resolve_storage_credentials
+fi
 
 if [[ "${TARGET}" == "dev" ]]; then
 	for var in HOST HOST_USERNAME APP_NAME SHARE_PATH; do
@@ -120,13 +226,27 @@ sync_media() {
 	local s3_uri="s3://${AWS_STORAGE_BUCKET_NAME}/"
 	message_info "Mirroring ${s3_uri} (excluding static/) into target '${TARGET}' media..."
 
+	# Unquoted on purpose: a single literal flag or nothing at all.
+	local dry_run_flag=""
+	if [ "${DRY_RUN}" == true ]; then
+		dry_run_flag="--dryrun"
+	fi
+
 	case "${TARGET}" in
 		local)
-			docker-compose -f docker-compose.backup.yaml run --rm aws-s3 \
+			# Own project name: the backup compose file shares main's project
+			# otherwise, which makes docker report every running service as an
+			# orphan of it (and suggest the destructive --remove-orphans).
+			docker-compose -p "${COMPOSE_PROJECT_NAME:-mineralogy-rocks}-backup" \
+				-f docker-compose.backup.yaml run --rm \
+				-e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+				-e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+				aws-s3 \
 				s3 sync "${s3_uri}" /media \
 				--delete \
 				--exclude "static/*" \
-				--endpoint-url "${AWS_S3_ENDPOINT_URL}"
+				--endpoint-url "${AWS_S3_ENDPOINT_URL}" \
+				${dry_run_flag}
 			;;
 		dev)
 			# Single-quoted on the remote side so `static/*` isn't glob-expanded
@@ -139,33 +259,76 @@ sync_media() {
 				s3 sync 's3://${AWS_STORAGE_BUCKET_NAME}/' /media \
 				--delete \
 				--exclude 'static/*' \
-				--endpoint-url '${AWS_S3_ENDPOINT_URL}'"
+				--endpoint-url '${AWS_S3_ENDPOINT_URL}' \
+				${dry_run_flag}"
 			;;
 	esac
 
-	message_success "Media mirrored into target '${TARGET}'."
+	if [ "${DRY_RUN}" == true ]; then
+		message_success "Media mirror dry-run finished; nothing was written to target '${TARGET}'."
+	else
+		message_success "Media mirrored into target '${TARGET}'."
+	fi
 }
 
 
 # ── Flow ───────────────────────────────────────────────────────
 message_newline
 message_welcome "Production → ${TARGET} sync"
-message_info "  Database: production dump → ${TARGET} restore (restore-only, no migrate)"
-message_info "  Media:    mirror s3://${AWS_STORAGE_BUCKET_NAME}/ (excluding static/) → ${TARGET} media"
+if [ "${SKIP_DB}" == true ]; then
+	message_info "  Database: skipped (--skip-db)"
+else
+	message_info "  Database: production dump → ${TARGET} restore (restore-only, no migrate)"
+fi
+if [ "${SKIP_MEDIA}" == true ]; then
+	message_info "  Media:    skipped (--skip-media)"
+else
+	message_info "  Media:    mirror s3://${AWS_STORAGE_BUCKET_NAME}/ (excluding static/) → ${TARGET} media"
+fi
+if [ "${DRY_RUN}" == true ]; then
+	message_info "  Dry run:  no dump, no restore; the media mirror only reports what it would copy."
+fi
 message_newline
 
-resolve_db_credentials
-
-message_warning "This will DESTROY the '${TGT_DB}' database and mirror media on target '${TARGET}'."
-if ! yes_no "Are you sure you want to continue"; then
-	message_info "Operation cancelled by user"
-	exit 1
+if [[ "${SKIP_DB}" == false && "${DRY_RUN}" == false ]]; then
+	resolve_db_credentials
 fi
 
-dump_production
-restore_database "${BACKUP_FILE}"
-sync_media
+if [ "${DRY_RUN}" == false ]; then
+	if [ "${SKIP_DB}" == false ]; then
+		message_warning "This will DESTROY the '${TGT_DB}' database on target '${TARGET}'."
+	fi
+	if [ "${SKIP_MEDIA}" == false ]; then
+		message_warning "This will mirror (and --delete) media on target '${TARGET}'."
+	fi
+
+	if [ "${ASSUME_YES}" == true ]; then
+		message_info "Confirmation skipped (--yes)."
+	elif ! yes_no "Are you sure you want to continue"; then
+		message_info "Operation cancelled by user"
+		exit 1
+	fi
+fi
+
+if [ "${SKIP_DB}" == false ]; then
+	if [ "${DRY_RUN}" == true ]; then
+		message_info "Dry run: would dump production and restore it into target '${TARGET}'."
+	else
+		dump_production
+		restore_database "${BACKUP_FILE}"
+	fi
+fi
+
+if [ "${SKIP_MEDIA}" == false ]; then
+	sync_media
+fi
 
 message_newline
-message_success "Production → ${TARGET} sync complete."
-message_info "  Backup kept at: ${BACKUP_FILE}"
+if [ "${DRY_RUN}" == true ]; then
+	message_success "Production → ${TARGET} sync dry-run complete; nothing was changed."
+else
+	message_success "Production → ${TARGET} sync complete."
+	if [ "${SKIP_DB}" == false ]; then
+		message_info "  Backup kept at: ${BACKUP_FILE}"
+	fi
+fi
